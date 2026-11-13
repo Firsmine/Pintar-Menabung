@@ -47,16 +47,16 @@ class AuthController extends Controller
                 'status' => 'error',
                 'message' => 'Invalid field',
                 'errors' => $data->errors()
-            ]);
+            ], 422);
         }
 
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->email, $user->email)) {
+        if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Username or password incorrect'
-            ]);
+            ], 401);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;

@@ -3,37 +3,42 @@
 namespace App\Http\Controllers;
 
 use App\Models\Currency;
+use App\Models\User;
 use App\Models\Wallet;
+use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class WalletController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index(Request $request)
+    public function index()
     {
-        $wallet = Wallet::where('user_id', $request->user())->with('currency:currency_code')->get();
-        if (!$wallet) {
+        $wallets = Wallet::where('user_id', Auth::id())->get();
+        if (!$wallets) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Not found'
-            ], 404);
-        }
-        if (!$wallet->where('user_id', $request->user())) {
-            return response()->json([
-                'status' => 'error',
-                'Forbidden access'
+                'message' => 'Forbidden access'
             ], 403);
         }
 
-        $balance = $wallet;
+        $data = $wallets->map(function ($wallet) {
+            $balance = $wallet->transaction->sum('amount') ?? null;
+            $wallet->unsetRelation('transaction');
+            return array_merge($wallet->toArray(), [
+                'currency_code' => $wallet->currency->code ?? null,
+                'balance' => $balance
+            ]);
+        });
 
         return response()->json([
             'status' => 'success',
             'message' => 'Get all wallets successful',
-            'data' => array_merge($wallet->toArray(), ['balance' => $balance])
+            'data' => ['wallets' => $data]
         ], 200);
     }
 
@@ -42,106 +47,124 @@ class WalletController extends Controller
      */
     public function store(Request $request)
     {
-        $data = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'currency_code' => 'required|string'
-        ]);
+        try {
+            $request->validate([
+                'name' => 'required|string|max:255',
+                'currency_code' => 'required|exists:money_lover_currencies,code'
+            ]);
 
-        if ($data->fails()) {
+            $currency = Currency::where('code', $request->currency_code)->firstOrFail();
+
+            $wallet = Wallet::create([
+                'user_id' => $request->user()->id,
+                'currency_id' => $currency->id,
+                'name' => $request->name,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Wallet added successfully',
+                'data' => array_merge($wallet->toArray(), [
+                    'currency_code' => $currency->code
+                ])
+            ], 201);
+        } catch (ValidationException $e) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Invalid field',
-                'errors' => $data->errors()
-            ]);
+                'errors' => $e->errors()
+            ], 422);
         }
-
-        $wallet = Wallet::create([
-            'user_id' => $request->user(),
-            'currency_id' => Currency::where('code', $request->currency_code),
-            'name' => $request->name,
-        ]);
-        $dataWallet = $wallet->with('currency:currency_code');
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Wallet added successfully',
-            'data' => $dataWallet
-        ], 201);
     }
 
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(Request $request, Wallet $wallet)
+    public function update(Request $request, string $wallet)
     {
-        $data = $request->validate(['name' => 'required|string|max:255']);
+        try {
+            $data = $request->validate(['name' => 'required|string|max:255']);
 
-        $wallet = Wallet::where('user_id', $request->user())->findOrFail($wallet);
+            $wallet = Wallet::find($wallet);
+            if (!$wallet) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Not found'
+                ], 404);
+            }
+            if (!$request->user() || (int) $wallet->user_id !== (int) Auth::id()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Forbidden access'
+                ], 403);
+            }
+
+            $wallet->update($data);
+            $wallet->refresh();
+            $currency = $wallet->currency;
+            $wallet->unsetRelation('currency');
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Wallet updated successful',
+                'data' => array_merge($wallet->toArray(), [
+                    'currency_code' => $currency->code ?? null
+                ])
+            ], 200);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid field',
+                'errors' => $e->errors()
+            ], 422);
+        }
+    }
+
+    public function show(Request $request, string $wallet)
+    {
+        $wallet = Wallet::find($wallet);
+
         if (!$wallet) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Not found'
             ], 404);
         }
-        if (!$wallet->where('user_id', $request->user())) {
+        if (!$request->user() || (int) $wallet->user_id !== auth()->id()) {
             return response()->json([
                 'status' => 'error',
-                'Forbidden access'
+                'message' => 'Forbidden access'
             ], 403);
         }
 
-        $wallet->update($data);
-        $wallet->refresh();
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Wallet updated successful',
-            'data' => $wallet
-        ]);
-    }
-
-    public function show(Request $request, Wallet $wallet)
-    {
-        $wallet = Wallet::where('user_id', $request->user())->with('currency:currency_code')->findOrFail($wallet);
-        if (!$wallet) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Not found'
-            ], 404);
-        }
-        if (!$wallet->where('user_id', $request->user())) {
-            return response()->json([
-                'status' => 'error',
-                'Forbidden access'
-            ], 403);
-        }
-
-        $balance = $wallet;
+        $balance = $wallet->transaction->sum('amount') ?? null;
+        $wallet->unsetRelation('transaction');
 
         return response()->json([
             'status' => 'success',
             'message' => 'Get detail wallet successful',
-            'data' => $wallet
+            'data' => array_merge($wallet->toArray(), [
+                'currency_code' => $wallet->currency->code ?? null,
+                'balance' => $balance
+            ])
         ]);
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, Wallet $wallet)
+    public function destroy(Request $request, string $wallet)
     {
-        $wallet = Wallet::where('user_id', $request->user())->findOrFail($wallet);
+        $wallet = Wallet::find($wallet);
+
         if (!$wallet) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Not found'
             ], 404);
         }
-        if (!$wallet->where('user_id', $request->user())) {
+        if (!$request->user() || (int) $wallet->user_id !== auth()->id()) {
             return response()->json([
                 'status' => 'error',
-                'Forbidden access'
+                'message' => 'Forbidden access'
             ], 403);
         }
 

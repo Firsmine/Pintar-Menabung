@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CurrencyCategoryController;
+use App\Http\Controllers\ReportController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Http\Request;
@@ -27,5 +28,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // transaction
     Route::get('transactions', [TransactionController::class, 'index']);
     Route::post('transactions', [TransactionController::class, 'store']);
-    Route::delete('transactions/{transaction}', [TransactionController::class, 'delete']);
+    Route::delete('transactions/{id}', [TransactionController::class, 'destroy']);
+
+    // report
+    Route::get('reports/summary-by-category/expense', [ReportController::class, 'expense']);
+    Route::get('reports/summary-by-category/income', [ReportController::class, 'income']);
 });

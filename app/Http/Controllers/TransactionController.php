@@ -13,11 +13,35 @@ class TransactionController extends Controller
      */
     public function index(Request $request)
     {
-        $transactions = Transaction::with('wallet', 'category');
+        $user = $request->user();
+        $data = $request->validate([
+            'page' => 'sometimes|integer|min:1',
+            'per_page' => 'sometimes|integer|min:1',
+            'month' => 'sometimes|integer|min:1|max:12',
+            'year' => 'sometimes|integer|min:1',
+        ]);
+
+        $query = Transaction::with(['wallet.currency:id,code', 'category'])->whereHas('wallet', function ($query) use ($user) {
+            $query->where('user_id', $user->id);
+        });
+        if ($request->filled('month')) {
+            $query->whereMonth('date', $request->month);
+        }
+        if ($request->filled('year')) {
+            $query->whereYear('date', $request->year);
+        }
+        $transactions = $query->orderBy('date', 'desc')->paginate($request->input('per_page', 25));
+        $transactions->through(function ($transaction) {
+            if ($transaction->wallet) {
+                $transaction->wallet->setAttribute('currency_code', $transaction->wallet->currency->code ?? null);
+                $transaction->wallet->makeHidden('currency_id', 'currency');
+                return $transaction;
+            }
+        });
 
         return response()->json([
             $transactions
-        ]);
+        ], 200);
     }
 
     /**
@@ -29,7 +53,7 @@ class TransactionController extends Controller
             'wallet_id' => 'required|exists:money_lover_wallets,id',
             'category_id' => 'required|exists:money_lover_categories,id',
             'amount' => 'required|integer|min:1',
-            'date' => 'required|date|format:Ymd',
+            'date' => 'required|date|date_format:Y-m-d',
             'note' => 'nullable|string'
         ]);
 
@@ -53,9 +77,9 @@ class TransactionController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Request $request, Transaction $transaction)
+    public function destroy(Request $request, string $id)
     {
-        $transaction = Transaction::where('user_id', $request->user())->findOrFail($transaction);
+        $transaction = Transaction::find($id);
         if (!$transaction) {
             return response()->json([
                 'status' => 'error',
