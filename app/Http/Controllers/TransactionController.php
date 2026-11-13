@@ -4,23 +4,20 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class TransactionController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        //
-    }
+        $transactions = Transaction::with('wallet', 'category');
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
+        return response()->json([
+            $transactions
+        ]);
     }
 
     /**
@@ -28,38 +25,55 @@ class TransactionController extends Controller
      */
     public function store(Request $request)
     {
-        //
-    }
+        $data = Validator::make($request->all(), [
+            'wallet_id' => 'required|exists:money_lover_wallets,id',
+            'category_id' => 'required|exists:money_lover_categories,id',
+            'amount' => 'required|integer|min:1',
+            'date' => 'required|date|format:Ymd',
+            'note' => 'nullable|string'
+        ]);
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Transaction $transaction)
-    {
-        //
-    }
+        if ($data->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid field',
+                'errors' => $data->errors()
+            ]);
+        }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(Transaction $transaction)
-    {
-        //
-    }
+        $transaction = Transaction::create($data->validated());
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Transaction $transaction)
-    {
-        //
+        return response()->json([
+            'status' => 'Success',
+            'message' => 'Transaction added successful',
+            'data' => $transaction
+        ]);
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Transaction $transaction)
+    public function destroy(Request $request, Transaction $transaction)
     {
-        //
+        $transaction = Transaction::where('user_id', $request->user())->findOrFail($transaction);
+        if (!$transaction) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Not found'
+            ], 404);
+        }
+        if (!$transaction->where('user_id', $request->user())) {
+            return response()->json([
+                'status' => 'error',
+                'Forbidden access'
+            ], 403);
+        }
+
+        $transaction->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Transaction deleted successful',
+        ]);
     }
 }
